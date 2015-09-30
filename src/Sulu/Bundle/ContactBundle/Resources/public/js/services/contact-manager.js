@@ -64,7 +64,7 @@ define([
             if (!!data.categories) {
                 contact.get('categories').reset();
                 Util.foreach(data.categories, function(id) {
-                    var category = Category.findOrCreate({id: id});
+                    var category = Category.findOrCreate({id: (!id.id ? id : id.id)});
                     contact.get('categories').add(category);
                 }.bind(this));
             }
