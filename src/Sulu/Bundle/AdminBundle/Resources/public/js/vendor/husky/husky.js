@@ -27291,6 +27291,149 @@ define('type/husky-input',[
  * with this source code in the file LICENSE.
  */
 
+define('services/husky/url-validator',[],function() {
+
+    'use strict';
+
+    var constants = {
+            regex: "([a-zA-Z0-9.-]+(:[a-zA-Z0-9.&%$-]+)*@)*((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.(com|edu|gov|int|mil|net|org|biz|arpa|info|name|pro|aero|coop|museum|[a-zA-Z]{2}))(:[0-9]+)*(\/($|[a-zA-Z0-9.,?'\\+&%$#=~_-]+))*",
+            defaultProtocols: ['http://', 'https://', 'ftp://', 'ftps://'],
+            specificPartKey: 2,
+            schemeKey: 1,
+            urlKey: 0
+        },
+
+        getRegexp = function(schemes) {
+            return new RegExp('^(' + schemes.join('|') + ')(' + constants.regex + ')$');
+        };
+
+    function Validator() {
+    }
+
+    /**
+     * Returns default schemes.
+     *
+     * @returns {Array}
+     */
+    Validator.prototype.getDefaultSchemes = function() {
+        return constants.defaultProtocols;
+    };
+
+    /**
+     * Tests given URL against internal regex.
+     *
+     * @param {String} url
+     * @param {Array} schemes if NULL default schemes will be used
+     *
+     * @returns {Boolean}
+     */
+    Validator.prototype.test = function(url, schemes) {
+        if (!schemes) {
+            schemes = this.getDefaultSchemes();
+        }
+
+        return getRegexp(schemes).test(url);
+    };
+
+    /**
+     * Returns parts of URL.
+     *
+     * @param {String} url
+     * @param {Array} schemes if NULL default schemes will be used
+     *
+     * @returns {{url, scheme, specificPart}}
+     */
+    Validator.prototype.match = function(url, schemes) {
+        if (!schemes) {
+            schemes = this.getDefaultSchemes();
+        }
+
+        var match = url.match(getRegexp(schemes));
+
+        if (!match) {
+            return match;
+        }
+
+        return {
+            url: match[constants.urlKey],
+            scheme: match[constants.schemeKey],
+            specificPart: match[constants.specificPartKey]
+        };
+    };
+
+    return new Validator();
+});
+
+/*
+ * This file is part of the Husky Validation.
+ *
+ * (c) MASSIVE ART WebServices GmbH
+ *
+ * This source file is subject to the MIT license that is bundled
+ * with this source code in the file LICENSE.
+ *
+ */
+
+define('type/url-input',[
+    'type/default',
+    'services/husky/url-validator'
+], function(Default, urlValidator) {
+
+    'use strict';
+
+    return function($el, options) {
+        var defaults = {
+                schemes: urlValidator.getDefaultSchemes()
+            },
+
+            constants = {
+                dataKey: 'url-data',
+                dataChangedEvent: 'data-changed'
+            },
+
+            typeInterface = {
+                setValue: function(data) {
+                    var match = urlValidator.match(data, this.options.schemes);
+
+                    if (!!match) {
+                        this.$el.data(
+                            constants.dataKey,
+                            match
+                        );
+                        this.$el.trigger(constants.dataChangedEvent)
+                    }
+                },
+
+                getValue: function() {
+                    var data = this.$el.data(constants.dataKey);
+
+                    return !!data && !!data.url ? data.url : null;
+                },
+
+                needsValidation: function() {
+                    return this.getValue() !== null;
+                },
+
+                validate: function() {
+                    var url = this.getValue();
+
+                    return urlValidator.test(url, this.options.schemes);
+                }
+            };
+
+        return new Default($el, defaults, options, 'url-input', typeInterface);
+    };
+});
+
+/*
+ * This file is part of the Sulu CMS.
+ *
+ * (c) MASSIVE ART WebServices GmbH
+ *
+ * This source file is subject to the MIT license that is bundled
+ * with this source code in the file LICENSE.
+ */
+
 define('services/husky/util',[],function() {
 
     'use strict';
@@ -28499,6 +28642,7 @@ define('husky',[
         app.use('./husky_extensions/colorpicker');
         app.use('./husky_extensions/datepicker');
         app.use('./husky_extensions/itembox');
+        app.use('./husky_extensions/itemgrid');
         app.use('./husky_extensions/cache-factory');
         app.use('./husky_extensions/infinite-scroll');
 
@@ -32279,9 +32423,9 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
         'husky_components/datagrid/decorators/dropdown-pagination'
     ], function(decoratorTableView, thumbnailView, decoratorDropdownPagination) {
 
-            /* Default values for options */
+        /* Default values for options */
 
-            var defaults = {
+        var defaults = {
                 view: 'table',
                 viewOptions: {
                     table: {},
@@ -32443,7 +32587,7 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
             namespace = 'husky.datagrid.',
 
 
-            /* TRIGGERS EVENTS */
+        /* TRIGGERS EVENTS */
 
             /**
              * raised after initialization has finished
@@ -32690,6 +32834,14 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
              */
             DATA_GET = function() {
                 return this.createEventName('data.get');
+            },
+
+            /**
+             * sets new data to datagrid
+             * @event husky.datagrid.data.set
+             */
+            DATA_SET = function() {
+                return this.createEventName('data.set');
             },
 
             /**
@@ -33115,6 +33267,26 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
             },
 
             /**
+             * Changes data in grid from array
+             * @param data array
+             */
+            setData: function(data) {
+                this.destroy();
+
+                if (!!data.resultKey && !!data[data.resultKey]) {
+                    this.data.embedded = data[data.resultKey];
+                } else {
+                    this.data.embedded = data;
+                }
+
+                if (!!this.paginations[this.paginationId]) {
+                    this.paginations[this.paginationId].render(this.data, this.$element);
+                }
+
+                this.render();
+            },
+
+            /**
              * Parses the sorting params from the url
              * @param url
              */
@@ -33286,7 +33458,7 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
             /**
              * Initialize the current set view decorator. Log an error message to console if the view is not valid
              */
-            initializeViewDecorator: function(){
+            initializeViewDecorator: function() {
                 if (this.isViewValid(this.gridViews[this.viewId])) {
                     // merge view options with passed ones
                     this.gridViews[this.viewId].initialize(this, this.options.viewOptions[this.viewId]);
@@ -33378,7 +33550,7 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
             changePagination: function(pagination) {
                 if (pagination !== this.paginationId) {
                     this.destroy();
-                    this.loadAndInitializePagination(pagination).then(function(){
+                    this.loadAndInitializePagination(pagination).then(function() {
                         this.render();
                     });
                 }
@@ -33526,6 +33698,7 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
                 }
 
                 this.sandbox.on(UPDATE.call(this), this.updateGrid.bind(this));
+                this.sandbox.on(DATA_SET.call(this), this.setData.bind(this));
                 this.sandbox.on(DATA_GET.call(this), this.provideData.bind(this));
                 this.sandbox.on(DATA_SEARCH.call(this), this.searchGrid.bind(this));
                 this.sandbox.on(URL_UPDATE.call(this), this.updateUrl.bind(this));
@@ -33545,12 +33718,12 @@ define('husky_components/datagrid/decorators/dropdown-pagination',[],function() 
                 this.sandbox.on(ITEMS_DESELECT.call(this), function() {
                     this.gridViews[this.viewId].deselectAllRecords();
                 }.bind(this));
-                this.sandbox.on(ITEMS_GET_SELECTED.call(this), function (callback, returnItems) {
+                this.sandbox.on(ITEMS_GET_SELECTED.call(this), function(callback, returnItems) {
                     if (!!returnItems) {
                         var ids = this.getSelectedItemIds(),
                             items = [];
 
-                        this.sandbox.util.foreach(ids, function (id) {
+                        this.sandbox.util.foreach(ids, function(id) {
                             items.push(this.getRecordById(id));
                         }.bind(this));
 
@@ -41862,7 +42035,7 @@ define('__component__$overlay@husky',[], function() {
          * @param {Number} slide number
          * @event husky.overlay.<instance-name>.slide-to
          */
-        SLIDE_TO = function () {
+        SLIDE_TO = function() {
             return createEventName.call(this, 'slide-to');
         },
 
@@ -42054,22 +42227,24 @@ define('__component__$overlay@husky',[], function() {
          * slide left
          */
         slideLeft: function() {
-            this.activeSlide--;
-            if (this.activeSlide < 0) {
-                this.activeSlide = this.slides.length - 1;
+            var slide = this.activeSlide - 1;
+            if (slide < 0) {
+                slide = this.slides.length - 1;
             }
-            this.slideTo(this.activeSlide);
+            
+            this.slideTo(slide);
         },
 
         /**
          * slide right
          */
         slideRight: function() {
-            this.activeSlide++;
-            if (this.activeSlide >= this.slides.length) {
-                this.activeSlide = 0;
+            var slide = this.activeSlide + 1;
+            if (slide >= this.slides.length) {
+                slide = 0;
             }
-            this.slideTo(this.activeSlide);
+
+            this.slideTo(slide);
         },
 
         /**
@@ -42077,14 +42252,13 @@ define('__component__$overlay@husky',[], function() {
          *
          * @param {Number} slide
          */
-        slideEvent: function (slide) {
+        slideEvent: function(slide) {
             if (slide < 0 || slide >= this.slides.length) {
                 this.sandbox.logger.error('Slide index out bounds');
 
                 return;
             }
 
-            this.activeSlide = slide;
             this.slideTo(this.activeSlide);
         },
 
@@ -42092,6 +42266,8 @@ define('__component__$overlay@husky',[], function() {
          * slide to given number
          */
         slideTo: function(slide) {
+            this.activeSlide = slide;
+
             var width = this.sandbox.dom.outerWidth(this.sandbox.dom.find('.slide', this.overlay.$slides));
             this.sandbox.dom.css(this.overlay.$slides, 'left', '-' + slide * width + 'px');
         },
@@ -43627,7 +43803,7 @@ define('__component__$dropzone@husky',[], function() {
  * @params {String} [options.value] value to set at the beginning
  * @params {String} [options.placeholder] html5-placholder to use
  * @params {Boolean} [options.disabled] defines if input can be edited
- * @params {String} [options.skin] name of the skin to use. Currently 'phone', 'password', 'url', 'email', 'date', 'time', 'color'. Each skin brings it's own default values. For example the password skin has automatically inputType: 'password'
+ * @params {String} [options.skin] name of the skin to use. Currently 'phone', 'password', 'email', 'date', 'time', 'color'. Each skin brings it's own default values. For example the password skin has automatically inputType: 'password'
  * @params {Object} [options.datepickerOptions] config-object to pass to the datepicker component - you can find possible values here http://bootstrap-datepicker.readthedocs.org/en/release/options.html
  * @params {Object} [options.colorPickerOptions] config-object to pass to the colorpicker component
  * @params {String} [options.frontIcon] name of icon to display in front
@@ -43696,9 +43872,6 @@ define('__component__$input@husky',[], function() {
             time: function() {
                 this.renderTime();
             },
-            url: function() {
-                this.renderLink('http://');
-            },
             email: function() {
                 this.renderLink('mailto:');
             }
@@ -43715,10 +43888,6 @@ define('__component__$input@husky',[], function() {
             password: {
                 frontIcon: 'key',
                 inputType: 'password'
-            },
-            url: {
-                frontText: 'http://',
-                renderMethod: 'url'
             },
             email: {
                 frontIcon: 'envelope',
@@ -43988,7 +44157,7 @@ define('__component__$input@husky',[], function() {
                 this.setDatepickerValueAttr(this.sandbox.datepicker.getDate(this.input.$input));
             } else {
                 this.sandbox.dom.val(this.input.$input, value);
-                if (this.options.renderMethod === 'email' || this.options.renderMethod === 'url') {
+                if (this.options.renderMethod === 'email') {
                     this.changeFrontLink();
                 }
             }
@@ -44916,6 +45085,223 @@ define('__component__$data-navigation@husky',[
                         oldView.destroy();
                     }.bind(this)
                 });
+        }
+    };
+});
+
+/**
+ * This file is part of Husky frontend development framework.
+ *
+ * (c) MASSIVE ART WebServices GmbH
+ *
+ * This source file is subject to the MIT license that is bundled
+ * with this source code in the file LICENSE.
+ *
+ * @module husky/components/input
+ */
+
+/**
+ * @class Url-Input
+ * @constructor
+ */
+define('__component__$url-input@husky',['services/husky/url-validator'], function(urlValidator) {
+    var defaults = {
+            instanceName: 'url-input',
+            inputClass: '',
+            scheme: 'https://',
+            specificPart: '',
+            schemes: urlValidator.getDefaultSchemes()
+        },
+
+        constants = {
+            triggerClass: 'drop-down-trigger',
+            toggleClass: 'dropdown-toggle',
+            schemeClass: 'scheme',
+            specificPartClass: 'specific-part-input',
+            linkClass: 'link',
+            dataKey: 'url-data',
+            dataChangedEvent: 'data-changed'
+        },
+
+        templates = {
+            skeleton: [
+                '<div class="front"',
+                '     data-aura-component="dropdown@husky"',
+                '     data-aura-trigger=".<%= constants.triggerClass %>"',
+                '     data-aura-instance-name="<%= options.instanceName %>"',
+                '     data-aura-data=\'<%= JSON.stringify(items) %>\'>',
+                '    <a class="<%= constants.schemeClass %> <%= constants.linkClass %> text text-link"',
+                '       href="<%= data.url %>" target="_blank"><%= data.scheme %></a>',
+                '    <span class="<%= constants.triggerClass %>">',
+                '        <span class="<%= constants.toggleClass %>" style="display: inline-block;"/>',
+                '    </span>',
+                '</div>',
+                '<div class="input">',
+                '    <input type="text"',
+                '           class="<%= constants.specificPartClass %> <%= options.inputClass %>" ',
+                '           value="<%= data.specificPart %>"/>',
+                '</div>'
+            ].join('')
+        };
+
+    return {
+        /**
+         * Initialize component
+         */
+        initialize: function() {
+            // merge defaults
+            this.options = this.sandbox.util.extend(true, {}, defaults, this.options);
+
+            if (this.getData() === undefined) {
+                this.setData({scheme: this.options.scheme, specificPart: this.options.specificPart});
+            }
+
+            this.prepareItems(this.options.schemes);
+            this.render();
+            this.bindCustomEvents();
+            this.bindDomEvents();
+        },
+
+        /**
+         * Prepare schemes to use it in dropdown.
+         */
+        prepareItems: function(schemes) {
+            this.items = this.sandbox.util.arrayMap(schemes, function(scheme) {
+                return {
+                    id: scheme,
+                    name: scheme
+                }
+            }.bind(this));
+        },
+
+        /**
+         * Render skeleton of component
+         */
+        render: function() {
+            this.$el.addClass('husky-input');
+
+            this.html(this.sandbox.util.template(templates.skeleton, {
+                constants: constants,
+                options: this.options,
+                data: this.getData(),
+                items: this.items
+            }));
+        },
+
+        /**
+         * Bind necessary dom events.
+         */
+        bindDomEvents: function() {
+            this.sandbox.dom.on(
+                this.$find('.' + constants.linkClass),
+                'click',
+                this.linkHandler.bind(this)
+            );
+
+            this.sandbox.dom.on(
+                this.$find('.' + constants.specificPartClass),
+                'keyup',
+                this.specificPartChangedHandler.bind(this)
+            );
+
+            this.sandbox.dom.on(
+                this.$el,
+                constants.dataChangedEvent,
+                this.dataChangedHandler.bind(this)
+            );
+        },
+
+        /**
+         * Handles click on scheme.
+         */
+        linkHandler: function() {
+            var data = this.getData();
+            if (!data.url) {
+                return false;
+            }
+        },
+
+        /**
+         * Handles input changed.
+         */
+        specificPartChangedHandler: function(e) {
+            this.sandbox.dom.stopPropagation(e);
+
+            var specificPart = this.$find('.' + constants.specificPartClass).val(),
+                data = this.setData({specificPart: specificPart});
+
+            this.$find('.' + constants.schemeClass).attr('href', data.url);
+        },
+
+        /**
+         * Handles data changed.
+         */
+        dataChangedHandler: function() {
+            var data = this.getData();
+            this.$find('.' + constants.specificPartClass).val(data.specificPart);
+            this.$find('.' + constants.schemeClass).html(data.scheme);
+            this.$find('.' + constants.schemeClass).attr('href', data.url);
+        },
+
+        /**
+         * Bind necessary aura events.
+         */
+        bindCustomEvents: function() {
+            this.sandbox.on(
+                'husky.dropdown.' + this.options.instanceName + '.item.click',
+                this.selectSchemeHandler.bind(this)
+            );
+        },
+
+        /**
+         * Handles scheme dropdown value click.
+         *
+         * @param {{id, name}} item
+         */
+        selectSchemeHandler: function(item) {
+            this.$find('.' + constants.schemeClass).html(item.name);
+
+            var data = this.setData({scheme: item.id});
+            this.$find('.' + constants.schemeClass).attr('href', data.url);
+        },
+
+        /**
+         * Set data to dom-data and generate URL.
+         *
+         * @param {{scheme, specificPart}} data
+         */
+        setData: function(data) {
+            var newData = this.sandbox.util.extend(true, {}, this.getData(), data);
+
+            newData.url = null;
+            if (!!newData.scheme && !!newData.specificPart) {
+                newData.url = this.getUrl(newData);
+            }
+
+            this.$el.data(constants.dataKey, newData);
+            this.$el.trigger('change');
+
+            return newData;
+        },
+
+        /**
+         * Returns URL generated from given data.
+         *
+         * @param {{scheme, specificPart}} data
+         *
+         * @returns {String}
+         */
+        getUrl: function(data) {
+            return data.scheme + data.specificPart;
+        },
+
+        /**
+         * Returns dom-data.
+         *
+         * @returns {{scheme, specificPart, url}}
+         */
+        getData: function() {
+            return this.$el.data(constants.dataKey);
         }
     };
 });
@@ -50117,6 +50503,318 @@ define('husky_extensions/itembox',[],function() {
  * with this source code in the file LICENSE.
  *
  */
+
+/**
+ * Introduces functionality used by multiple components, which are displaying some items in a list
+ */
+define('husky_extensions/itemgrid',[],function() {
+
+    'use strict';
+
+    var defaults = {
+            instanceName: null,
+            url: null,
+            eventNamespace: 'husky.itemgrid',
+            idsParameter: 'ids',
+            resultKey: null,
+            idKey: 'id',
+            dataAttribute: '',
+            dataDefault: {},
+            sortable: false,
+            removable: true,
+            translations: {
+                noContentSelected: 'listbox.nocontent-selected',
+                viewAll: 'public.view-all',
+                viewLess: 'public.view-less',
+                of: 'public.of',
+                visible: 'public.visible',
+                elementsSelected: 'public.elements-selected'
+            }
+        },
+
+        constants = {
+            noContentClass: 'no-content',
+            addIcon: 'fa-plus-circle',
+            deleteIcon: 'fa-trash-o'
+        },
+
+        /**
+         * returns the normalized event names
+         * @param eventName {string} The name of the concrete event without prefix
+         * @returns {string} Returns the prefixed event name
+         */
+        createEventName = function(eventName) {
+            return [
+                this.options.eventNamespace,
+                '.',
+                (this.options.instanceName ? this.options.instanceName + '.' : ''),
+                eventName
+            ].join('');
+        },
+
+        templates = {
+            skeleton: function() {
+                return [
+                    '<div class="listgrid" id="', this.ids.container, '">',
+                    '    <div class="header">',
+                    '        <span class="', constants.addIcon ,' icon left action add-button" id="', this.ids.addButton, '"></span>',
+                    '        <span class="', constants.deleteIcon ,' icon left action delete-button" id="', this.ids.deleteButton, '"></span>',
+                    '    </div>',
+                    '    <div class="content" id="', this.ids.content, '"></div>',
+                    '</div>'
+                ].join('');
+            }
+        },
+
+        bindCustomEvents = function() {
+            this.sandbox.on(this.DATA_CHANGED(), this.changeData.bind(this));
+
+            this.sandbox.on(this.DELETE_BUTTON_CLICKED(), function() {
+                this.sandbox.emit('husky.datagrid.' + this.options.instanceName + '.items.get-selected', function(ids) {
+                    deleteItems.call(this, ids);
+                }.bind(this));
+            }.bind(this));
+
+            this.sandbox.on(this.ITEM_ADD(), function(item) {
+                addItem.call(this, item);
+            }.bind(this));
+
+            this.sandbox.on(this.ITEM_SAVE(), function(item) {
+                editItem.call(this, item);
+            }.bind(this));
+        },
+
+        bindDomEvents = function() {
+            // click on the add button
+            this.sandbox.dom.on(this.$addButton, 'click', function() {
+                this.sandbox.emit(this.ADD_BUTTON_CLICKED());
+            }.bind(this));
+
+            // click on the config button
+            this.sandbox.dom.on(this.$deleteButton, 'click', function() {
+                this.sandbox.emit(this.DELETE_BUTTON_CLICKED());
+            }.bind(this));
+        },
+
+        addItem = function(newItem) {
+            var data = this.getData();
+
+            if (this.sandbox.util.typeOf(data) !== 'array' || this.sandbox.util.typeOf(data[0]) !== 'object') {
+                data = [];
+            }
+
+            data.push(newItem);
+            this.setData(data);
+        },
+
+        editItem = function(editedItem) {
+            var newData = [], data = this.getData();
+            data.forEach(function(item) {
+                if (item.id === editedItem.id) {
+                    newData.push(editedItem);
+                } else {
+                    newData.push(item);
+                }
+            }.bind(this));
+
+            this.setData(newData);
+        },
+
+        deleteItems = function(ids) {
+            this.sandbox.sulu.showDeleteDialog(function(wasConfirmed) {
+                if (wasConfirmed) {
+                    var newData = [], data = this.getData();
+                    data.forEach(function(item) {
+                        if (ids.indexOf(item.id) > -1) {
+                            this.sandbox.emit('husky.datagrid.' + this.options.instanceName + '.record.remove', item.id);
+                            this.sandbox.emit('sulu.header.toolbar.item.enable', 'save', false);
+                        } else {
+                            newData.push(item);
+                        }
+                    }.bind(this));
+
+                    this.setData(newData);
+                }
+            }.bind(this));
+        },
+
+        itemgrid = {
+            /**
+             * raised when the data changed and the list should be reloaded
+             * @event husky.itembox.data-changed
+             * @return {string}
+             */
+            DATA_CHANGED: function() {
+                return createEventName.call(this, 'data-changed');
+            },
+
+            /**
+             * raised when the add button was clicked
+             * @event husky.itembox.add-button-clicked
+             * @return {string}
+             */
+            ADD_BUTTON_CLICKED: function() {
+                return createEventName.call(this, 'add-button-clicked');
+            },
+
+            /**
+             * raised when the config button was clicked
+             * @event husky.itembox.config-button-clicked
+             * @return {string}
+             */
+            DELETE_BUTTON_CLICKED: function() {
+                return createEventName.call(this, 'delete-button-clicked');
+            },
+
+            /**
+             * raised when a new item should be persisted
+             * @event husky.itembox.config-button-clicked
+             * @return {string}
+             */
+            ITEM_ADD: function() {
+                return createEventName.call(this, 'add-item');
+            },
+
+            /**
+             * raised when an existing item should be persisted
+             * @event husky.itembox.config-button-clicked
+             * @return {string}
+             */
+            ITEM_SAVE: function() {
+                return createEventName.call(this, 'save-item');
+            },
+            /**
+             * render the itembox
+             */
+            render: function() {
+                this.options = this.sandbox.util.extend(true, {}, defaults, this.options);
+
+                var data = this.getData();
+
+                this.viewAll = true;
+
+                this.ids = {
+                    container: 'listbox-' + this.options.instanceName + '-container',
+                    addButton: 'listbox-' + this.options.instanceName + '-add',
+                    deleteButton: 'listbox-' + this.options.instanceName + '-delete',
+                    content: 'listbox-' + this.options.instanceName + '-content'
+                };
+
+                this.sandbox.dom.html(this.$el, templates.skeleton.call(this));
+
+                this.$container = this.sandbox.dom.find(this.getId('container'), this.$el);
+                this.$addButton = this.sandbox.dom.find(this.getId('addButton'), this.$el);
+                this.$deleteButton = this.sandbox.dom.find(this.getId('deleteButton'), this.$el);
+                this.$content = this.sandbox.dom.find(this.getId('content'), this.$el);
+
+                bindCustomEvents.call(this);
+                bindDomEvents.call(this);
+
+                this.renderContent(data);
+            },
+
+            /**
+             * Returns the data currently stored in this component
+             * @param deepCopy {boolean} True if deep cop should be returned, otherwise false
+             * @returns {object}
+             */
+            getData: function() {
+                return this.sandbox.util.deepCopy(this.sandbox.dom.data(this.$el, this.options.dataAttribute));
+            },
+
+            /**
+             * Throws a data-changed event if the data actually has changed
+             * @param data {object} The data to set
+             * @param reload {boolean} True if the itembox list should be reloaded afterwards
+             */
+            setData: function(data, reload) {
+                this.sandbox.emit(this.DATA_CHANGED(), data, this.$el, reload);
+            },
+
+            /**
+             * Event handler for the changed data event, sets data to element and reloads the list if specified
+             * @param data {object} The data to set
+             * @param $el {object} The element to which the data should be bound
+             * @param reload {boolean} True if the list should be reloaded, otherwise false
+             */
+            changeData: function (data) {
+                this.updateOrder(data);
+
+                this.sandbox.emit('husky.datagrid.' + this.options.instanceName + '.data.set', data);
+
+                this.sandbox.dom.data(this.$el, this.options.dataAttribute, data);
+
+                this.sandbox.emit('sulu.header.toolbar.item.enable', 'save', false);
+            },
+
+            /**
+             * Gets data and returns them in sorted order
+             * @param data {object} The data, which should be set into the grid
+             */
+            updateOrder: function(data) {
+                throw new Error('"updateOrder" not implemented');
+            },
+
+            /**
+             * Returns the selector for the given id
+             * @param type {string} The type of the element, for which the id should be returned
+             * @returns {string} The id of the element
+             */
+            getId: function(type) {
+                return ['#', this.ids[type]].join('');
+            },
+
+            /**
+             * Renders the data into the list
+             * @param data {object} The data to render
+             */
+            renderContent: function(data) {
+                var template = [
+                        '<div id="', this.options.instanceName, '-list-toolbar-container"></div>',
+                        '<div id="itemgrid-list-', this.options.instanceName, '"></div>'
+                    ].join('');
+
+                this.sandbox.dom.html(this.$content, template);
+
+                //start list-toolbar and datagrid
+                this.sandbox.start([
+                    {
+                        name: 'datagrid@husky',
+                        options: {
+                            el: '#itemgrid-list-' + this.options.instanceName,
+                            instanceName: this.options.instanceName,
+                            view: 'table',
+                            data: data,
+                            matchings: this.options.fieldList,
+                            viewOptions: {
+                                table: {
+                                    noItemsText: 'public.empty-list'
+                                }
+                            }
+                        }
+                    }
+                ]);
+            }
+        };
+
+    return {
+        name: 'itemgrid',
+
+        initialize: function(app) {
+            app.components.addType('itemgrid', itemgrid);
+        }
+    }
+});
+
+/**
+ * This file is part of Husky frontend development framework.
+ *
+ * (c) MASSIVE ART WebServices GmbH
+ *
+ * This source file is subject to the MIT license that is bundled
+ * with this source code in the file LICENSE.
+ *
+ */
 (function() {
 
     'use strict';
@@ -51052,6 +51750,8 @@ define('husky_extensions/util',['services/husky/util'], function(Util) {
             app.core.util.removeFromArray = Util.removeFromArray;
 
             app.core.util.capitalizeFirstLetter = Util.capitalizeFirstLetter;
+
+            app.core.util.arrayMap = Util.arrayMap;
         }
     };
 });
