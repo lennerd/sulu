@@ -14,6 +14,7 @@ namespace Sulu\Bundle\WebsiteBundle\Controller;
 use Sulu\Bundle\WebsiteBundle\Resolver\ParameterResolverInterface;
 use Sulu\Component\Content\Mapper\ContentMapperInterface;
 use Sulu\Component\Webspace\Analyzer\RequestAnalyzerInterface;
+use Sulu\Component\Webspace\Exception\NoValidWebspaceException;
 use Symfony\Bundle\TwigBundle\Controller\ExceptionController as BaseExceptionController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -64,7 +65,15 @@ class ExceptionController extends BaseExceptionController
     ) {
         $code = $exception->getStatusCode();
         $showException = $request->attributes->get('showException', $this->debug);
-        $template = $this->requestAnalyzer->getWebspace()->getTheme()->getErrorTemplate($code);
+        $webspace = $this->requestAnalyzer->getWebspace();
+
+        if (null === $webspace) {
+            $url = $url = $request->getHost() . $request->getPathInfo();
+
+            throw new NoValidWebspaceException($url);
+        }
+
+        $template = $webspace->getTheme()->getErrorTemplate($code);
 
         if ($showException || $request->getRequestFormat() !== 'html' || $template === null) {
             return parent::showAction($request, $exception, $logger);
