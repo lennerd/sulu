@@ -43803,7 +43803,7 @@ define('__component__$dropzone@husky',[], function() {
  * @params {String} [options.value] value to set at the beginning
  * @params {String} [options.placeholder] html5-placholder to use
  * @params {Boolean} [options.disabled] defines if input can be edited
- * @params {String} [options.skin] name of the skin to use. Currently 'phone', 'password', 'email', 'date', 'time', 'color'. Each skin brings it's own default values. For example the password skin has automatically inputType: 'password'
+ * @params {String} [options.skin] name of the skin to use. Currently 'phone', 'password', 'url', 'email', 'date', 'time', 'color'. Each skin brings it's own default values. For example the password skin has automatically inputType: 'password'
  * @params {Object} [options.datepickerOptions] config-object to pass to the datepicker component - you can find possible values here http://bootstrap-datepicker.readthedocs.org/en/release/options.html
  * @params {Object} [options.colorPickerOptions] config-object to pass to the colorpicker component
  * @params {String} [options.frontIcon] name of icon to display in front
@@ -43872,6 +43872,9 @@ define('__component__$input@husky',[], function() {
             time: function() {
                 this.renderTime();
             },
+            url: function() {
+                this.renderLink('http://');
+            },
             email: function() {
                 this.renderLink('mailto:');
             }
@@ -43888,6 +43891,10 @@ define('__component__$input@husky',[], function() {
             password: {
                 frontIcon: 'key',
                 inputType: 'password'
+            },
+            url: {
+                frontText: 'http://',
+                renderMethod: 'url'
             },
             email: {
                 frontIcon: 'envelope',
@@ -44157,7 +44164,7 @@ define('__component__$input@husky',[], function() {
                 this.setDatepickerValueAttr(this.sandbox.datepicker.getDate(this.input.$input));
             } else {
                 this.sandbox.dom.val(this.input.$input, value);
-                if (this.options.renderMethod === 'email') {
+                if (this.options.renderMethod === 'email' || this.options.renderMethod === 'url') {
                     this.changeFrontLink();
                 }
             }
@@ -45109,8 +45116,7 @@ define('__component__$url-input@husky',['services/husky/url-validator'], functio
             instanceName: 'url-input',
             inputClass: '',
             scheme: 'https://',
-            specificPart: '',
-            schemes: urlValidator.getDefaultSchemes()
+            specificPart: ''
         },
 
         constants = {
@@ -45126,15 +45132,20 @@ define('__component__$url-input@husky',['services/husky/url-validator'], functio
         templates = {
             skeleton: [
                 '<div class="front"',
+                '<% if (items.length > 1) { %>',
                 '     data-aura-component="dropdown@husky"',
                 '     data-aura-trigger=".<%= constants.triggerClass %>"',
                 '     data-aura-instance-name="<%= options.instanceName %>"',
-                '     data-aura-data=\'<%= JSON.stringify(items) %>\'>',
+                '     data-aura-data=\'<%= JSON.stringify(items) %>\'',
+                '<% } %>',
+                '     >',
                 '    <a class="<%= constants.schemeClass %> <%= constants.linkClass %> text text-link"',
                 '       href="<%= data.url %>" target="_blank"><%= data.scheme %></a>',
+                '<% if (items.length > 1) { %>',
                 '    <span class="<%= constants.triggerClass %>">',
                 '        <span class="<%= constants.toggleClass %>" style="display: inline-block;"/>',
                 '    </span>',
+                '<% } %>',
                 '</div>',
                 '<div class="input">',
                 '    <input type="text"',
@@ -45149,6 +45160,11 @@ define('__component__$url-input@husky',['services/husky/url-validator'], functio
          * Initialize component
          */
         initialize: function() {
+            // the array will be extend with all default.schemes if this.options.schemes are set
+            if (!this.options.schemes || this.options.schemes.length === 0) {
+                this.options.schemes = urlValidator.getDefaultSchemes();
+            }
+
             // merge defaults
             this.options = this.sandbox.util.extend(true, {}, defaults, this.options);
 
